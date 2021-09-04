@@ -50,7 +50,7 @@ impl From<u32> for Instruction {
             },
             target: Operand::get_combination_target(operand_combination),
             source: Operand::get_combination_source(operand_combination),
-            imm: (imm_1 | imm_2) as u16,
+            imm: (imm_1 >> 8 | imm_2 << 8) as u16,
         }
     }
 }

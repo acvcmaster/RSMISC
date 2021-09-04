@@ -31,13 +31,6 @@ impl Rsmisc {
         };
         let length = program.len();
 
-        if length % 0x4 != 0 {
-            return Err(RsmiscError {
-                code: -1,
-                message: format!("INVALID_PROGRAM_LENGTH"),
-            });
-        }
-
         for address in 0..length {
             result.memory[address] = program[address];
         }
@@ -83,7 +76,7 @@ impl Rsmisc {
         self.memory[(address + 1) as usize] = b1 as u8;
     }
 
-    pub fn execute_next(&mut self) -> Result<bool, RsmiscError> {
+    pub fn execute_next(&mut self, print: bool) -> Result<bool, RsmiscError> {
         let result = self.load_32(self.ip);
         match result {
             Ok(dword) => {
@@ -91,42 +84,62 @@ impl Rsmisc {
                 self.ip += 0x4;
 
                 match instruction.op_code {
-                    instruction::Opcode::HALT => self.halt(),
-                    instruction::Opcode::ADD => self.add(instruction),
-                    instruction::Opcode::SUB => self.sub(instruction),
-                    instruction::Opcode::MUL => self.mul(instruction),
-                    instruction::Opcode::DIV => self.div(instruction),
-                    instruction::Opcode::MOV => self.mov(instruction),
-                    instruction::Opcode::LD => self.ld(instruction),
-                    instruction::Opcode::ULD => self.uld(instruction),
-                    instruction::Opcode::BZ => self.bz(instruction),
-                    instruction::Opcode::SWI => self.swi(instruction),
-                    instruction::Opcode::CALL => self.call(instruction),
-                    instruction::Opcode::RET => self.ret(),
-                    instruction::Opcode::NOP => self.nop(),
+                    instruction::Opcode::HALT => self.halt(instruction, print),
+                    instruction::Opcode::ADD => self.add(instruction, print),
+                    instruction::Opcode::SUB => self.sub(instruction, print),
+                    instruction::Opcode::MUL => self.mul(instruction, print),
+                    instruction::Opcode::DIV => self.div(instruction, print),
+                    instruction::Opcode::MOV => self.mov(instruction, print),
+                    instruction::Opcode::LD => self.ld(instruction, print),
+                    instruction::Opcode::ULD => self.uld(instruction, print),
+                    instruction::Opcode::BZ => self.bz(instruction, print),
+                    instruction::Opcode::SWI => self.swi(instruction, print),
+                    instruction::Opcode::CALL => self.call(instruction, print),
+                    instruction::Opcode::RET => self.ret(instruction, print),
+                    instruction::Opcode::NOP => self.nop(instruction, print),
                 }
             }
             Err(error) => Err(error),
         }
     }
 
-    pub fn halt(&self) -> Result<bool, RsmiscError> {
+    pub fn halt(&self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         Ok(false)
     }
 
-    pub fn add(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn add(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         self.arithmetic_operation(instruction, ArithmeticOperation::Add)
     }
 
-    pub fn sub(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn sub(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         self.arithmetic_operation(instruction, ArithmeticOperation::Sub)
     }
 
-    pub fn mul(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn mul(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         self.arithmetic_operation(instruction, ArithmeticOperation::Mul)
     }
 
-    pub fn div(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn div(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         self.arithmetic_operation(instruction, ArithmeticOperation::Div)
     }
 
@@ -163,7 +176,11 @@ impl Rsmisc {
         }
     }
 
-    pub fn mov(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn mov(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         let source_value = self.get_operand_value(instruction, instruction.source);
         let invalid_move_target = Err(RsmiscError {
             code: -6,
@@ -199,7 +216,11 @@ impl Rsmisc {
         }
     }
 
-    pub fn ld(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn ld(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         let source_value = self.get_operand_value(instruction, instruction.source);
 
         match source_value {
@@ -211,7 +232,11 @@ impl Rsmisc {
         }
     }
 
-    pub fn uld(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn uld(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         match self.stack.pop() {
             Some(value) => match instruction.target {
                 Operand::R1 => {
@@ -250,14 +275,18 @@ impl Rsmisc {
         }
     }
 
-    pub fn bz(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn bz(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         let target_value = self.get_operand_value(instruction, instruction.target);
         let source_value = self.get_operand_value(instruction, instruction.source);
 
         match (target_value, source_value) {
             (Ok(target), Ok(source)) => {
-                if source == 0 {
-                    self.ip = target;
+                if target == 0 {
+                    self.ip = source;
                 }
 
                 Ok(true)
@@ -268,7 +297,11 @@ impl Rsmisc {
         }
     }
 
-    pub fn swi(&self, _: Instruction) -> Result<bool, RsmiscError> {
+    pub fn swi(&self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         Err(RsmiscError {
             code: -3,
             message: format!(
@@ -278,7 +311,11 @@ impl Rsmisc {
         })
     }
 
-    pub fn call(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+    pub fn call(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         let target_value = self.get_operand_value(instruction, instruction.target);
         return match target_value {
             Ok(target) => {
@@ -290,7 +327,11 @@ impl Rsmisc {
         };
     }
 
-    pub fn ret(&mut self) -> Result<bool, RsmiscError> {
+    pub fn ret(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         match self.call_stack.pop() {
             Some(value) => {
                 self.ip = value;
@@ -303,7 +344,11 @@ impl Rsmisc {
         }
     }
 
-    pub fn nop(&self) -> Result<bool, RsmiscError> {
+    pub fn nop(&self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
+        if print {
+            self.print_instruction(&instruction);
+        }
+
         Ok(true)
     }
 
@@ -321,6 +366,10 @@ impl Rsmisc {
             Operand::CT => Ok(instruction.imm),
             Operand::MA => self.load_16(instruction.imm),
         }
+    }
+
+    pub fn print_instruction(&self, instruction: &Instruction) {
+        println!("0x{:x}: {:?}", self.ip - 4, instruction);
     }
 }
 
