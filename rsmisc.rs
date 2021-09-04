@@ -1,13 +1,22 @@
+use arithmetic_operation::ArithmeticOperation;
+use instruction::Instruction;
+use operand::Operand;
+
 use crate::debug_symbol::DebugSymbol;
 
+pub mod arithmetic_operation;
 pub mod debug_symbol;
+pub mod instruction;
+pub mod operand;
 
 #[derive(Debug, Clone)]
 pub struct Rsmisc {
     memory: [u8; 0xffff], // 64 KiB
     ip: u16,
-    registers: [u8; 0x4], // R1, R2, R3, R4,
+    registers: [u16; 0x4], // R1, R2, R3, R4,
     debug_symbols: Vec<DebugSymbol>,
+    stack: Vec<u16>,
+    call_stack: Vec<u16>,
 }
 
 impl Rsmisc {
@@ -17,6 +26,8 @@ impl Rsmisc {
             ip: 0,
             registers: [0; 0x4],
             debug_symbols: debug_symbols.clone(),
+            stack: Vec::new(),
+            call_stack: Vec::new(),
         };
         let length = program.len();
 
@@ -27,58 +38,288 @@ impl Rsmisc {
             });
         }
 
-        for address in (0..length).step_by(0x4) {
-            let b0 = program[address + 0] as u32;
-            let b1 = program[address + 1] as u32;
-            let b2 = program[address + 2] as u32;
-            let b3 = program[address + 3] as u32;
-
-            if let Err(error) = result.store_32(address as u32, b3 | b2 << 8 | b1 << 16 | b0 << 24)
-            {
-                // Never going to trigger (step by 4)
-                return Err(error);
-            }
+        for address in 0..length {
+            result.memory[address] = program[address];
         }
 
         Ok(result)
     }
 
-    pub fn load_32(&mut self, address: u32) -> Result<u32, RsmiscError> {
-        match address % 0x4 {
-            0 => {
-                let b0 = self.memory[(address + 0) as usize] as u32;
-                let b1 = self.memory[(address + 1) as usize] as u32;
-                let b2 = self.memory[(address + 2) as usize] as u32;
-                let b3 = self.memory[(address + 3) as usize] as u32;
+    pub fn load_32(&self, address: u16) -> Result<u32, RsmiscError> {
+        let b0 = self.memory[(address + 0) as usize] as u32;
+        let b1 = self.memory[(address + 1) as usize] as u32;
+        let b2 = self.memory[(address + 2) as usize] as u32;
+        let b3 = self.memory[(address + 3) as usize] as u32;
 
-                Ok(b3 | b2 << 8 | b1 << 16 | b0 << 24)
+        Ok(b3 | b2 << 8 | b1 << 16 | b0 << 24)
+    }
+
+    pub fn store_32(&mut self, address: u16, dword: u32) -> Result<(), RsmiscError> {
+        let b0 = (dword & 0xff000000) >> 24;
+        let b1 = (dword & 0xff0000) >> 16;
+        let b2 = (dword & 0xff00) >> 8;
+        let b3 = (dword & 0xff) >> 0;
+
+        self.memory[(address + 0) as usize] = b0 as u8;
+        self.memory[(address + 1) as usize] = b1 as u8;
+        self.memory[(address + 2) as usize] = b2 as u8;
+        self.memory[(address + 3) as usize] = b3 as u8;
+
+        Ok(())
+    }
+
+    pub fn load_16(&self, address: u16) -> Result<u16, RsmiscError> {
+        let b0 = self.memory[(address + 0) as usize] as u16;
+        let b1 = self.memory[(address + 1) as usize] as u16;
+
+        Ok(b1 | b0 << 8)
+    }
+
+    pub fn store_16(&mut self, address: u16, value: u16) -> () {
+        let b0 = (value & 0xff00) >> 8;
+        let b1 = value & 0xff;
+
+        self.memory[(address + 0) as usize] = b0 as u8;
+        self.memory[(address + 1) as usize] = b1 as u8;
+    }
+
+    pub fn execute_next(&mut self) -> Result<bool, RsmiscError> {
+        let result = self.load_32(self.ip);
+        match result {
+            Ok(dword) => {
+                let instruction = Instruction::from(dword);
+                self.ip += 0x4;
+
+                match instruction.op_code {
+                    instruction::Opcode::HALT => self.halt(),
+                    instruction::Opcode::ADD => self.add(instruction),
+                    instruction::Opcode::SUB => self.sub(instruction),
+                    instruction::Opcode::MUL => self.mul(instruction),
+                    instruction::Opcode::DIV => self.div(instruction),
+                    instruction::Opcode::MOV => self.mov(instruction),
+                    instruction::Opcode::LD => self.ld(instruction),
+                    instruction::Opcode::ULD => self.uld(instruction),
+                    instruction::Opcode::BZ => self.bz(instruction),
+                    instruction::Opcode::SWI => self.swi(instruction),
+                    instruction::Opcode::CALL => self.call(instruction),
+                    instruction::Opcode::RET => self.ret(),
+                    instruction::Opcode::NOP => self.nop(),
+                }
             }
-            _ => Err(RsmiscError {
-                code: -2,
-                message: format!("UNALIGNED_LOAD_32"),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn halt(&self) -> Result<bool, RsmiscError> {
+        Ok(false)
+    }
+
+    pub fn add(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        self.arithmetic_operation(instruction, ArithmeticOperation::Add)
+    }
+
+    pub fn sub(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        self.arithmetic_operation(instruction, ArithmeticOperation::Sub)
+    }
+
+    pub fn mul(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        self.arithmetic_operation(instruction, ArithmeticOperation::Mul)
+    }
+
+    pub fn div(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        self.arithmetic_operation(instruction, ArithmeticOperation::Div)
+    }
+
+    pub fn arithmetic_operation(
+        &mut self,
+        instruction: Instruction,
+        operation: ArithmeticOperation,
+    ) -> Result<bool, RsmiscError> {
+        let target_result = self.get_operand_value(instruction, instruction.target);
+        let source_result = self.get_operand_value(instruction, instruction.source);
+
+        match (target_result, source_result) {
+            (Ok(target), Ok(source)) => match operation {
+                ArithmeticOperation::Add => {
+                    self.stack.push(target + source);
+                    Ok(true)
+                }
+                ArithmeticOperation::Sub => {
+                    self.stack.push(target - source);
+                    Ok(true)
+                }
+                ArithmeticOperation::Mul => {
+                    self.stack.push(target * source);
+                    Ok(true)
+                }
+                ArithmeticOperation::Div => {
+                    self.stack.push(target / source);
+                    Ok(true)
+                }
+            },
+            (Ok(_), Err(source)) => Err(source),
+            (Err(target), Ok(_)) => Err(target),
+            (Err(target), Err(_)) => Err(target),
+        }
+    }
+
+    pub fn mov(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        let source_value = self.get_operand_value(instruction, instruction.source);
+        let invalid_move_target = Err(RsmiscError {
+            code: -6,
+            message: format!("INVALID_MOVE_TARGET (at 0x{:x}", self.ip - 0x4),
+        });
+
+        match source_value {
+            Ok(source) => match instruction.target {
+                Operand::R1 => {
+                    self.registers[0] = source;
+                    Ok(true)
+                }
+                Operand::R2 => {
+                    self.registers[1] = source;
+                    Ok(true)
+                }
+                Operand::R3 => {
+                    self.registers[2] = source;
+                    Ok(true)
+                }
+                Operand::R4 => {
+                    self.registers[3] = source;
+                    Ok(true)
+                }
+                Operand::IP => {
+                    self.ip = source;
+                    Ok(true)
+                }
+                Operand::CT => invalid_move_target,
+                Operand::MA => invalid_move_target,
+            },
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn ld(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        let source_value = self.get_operand_value(instruction, instruction.source);
+
+        match source_value {
+            Ok(source) => {
+                self.stack.push(source);
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn uld(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        match self.stack.pop() {
+            Some(value) => match instruction.target {
+                Operand::R1 => {
+                    self.registers[0] = value;
+                    Ok(true)
+                }
+                Operand::R2 => {
+                    self.registers[1] = value;
+                    Ok(true)
+                }
+                Operand::R3 => {
+                    self.registers[2] = value;
+                    Ok(true)
+                }
+                Operand::R4 => {
+                    self.registers[3] = value;
+                    Ok(true)
+                }
+                Operand::IP => {
+                    self.ip = value;
+                    Ok(true)
+                }
+                Operand::CT => Err(RsmiscError {
+                    code: -5,
+                    message: format!("INVALID_UNLOAD_TARGET (at 0x{:x}", self.ip - 0x4),
+                }),
+                Operand::MA => {
+                    self.store_16(instruction.imm, value);
+                    Ok(true)
+                }
+            },
+            None => Err(RsmiscError {
+                code: -4,
+                message: format!("NO_ELEMENTS_IN_STACK (at 0x{:x}", self.ip - 0x4),
             }),
         }
     }
 
-    pub fn store_32(&mut self, address: u32, word: u32) -> Result<(), RsmiscError> {
-        match address % 0x4 {
-            0 => {
-                let b0 = (word & 0xff000000) >> 24;
-                let b1 = (word & 0xff0000) >> 16;
-                let b2 = (word & 0xff00) >> 8;
-                let b3 = (word & 0xff) >> 0;
+    pub fn bz(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        let target_value = self.get_operand_value(instruction, instruction.target);
+        let source_value = self.get_operand_value(instruction, instruction.source);
 
-                self.memory[(address + 0) as usize] = b0 as u8;
-                self.memory[(address + 1) as usize] = b1 as u8;
-                self.memory[(address + 2) as usize] = b2 as u8;
-                self.memory[(address + 3) as usize] = b3 as u8;
+        match (target_value, source_value) {
+            (Ok(target), Ok(source)) => {
+                if source == 0 {
+                    self.ip = target;
+                }
 
-                Ok(())
+                Ok(true)
             }
-            _ => Err(RsmiscError {
+            (Ok(_), Err(source)) => Err(source),
+            (Err(target), Ok(_)) => Err(target),
+            (Err(target), Err(_)) => Err(target),
+        }
+    }
+
+    pub fn swi(&self, _: Instruction) -> Result<bool, RsmiscError> {
+        Err(RsmiscError {
+            code: -3,
+            message: format!(
+                "UNIMPLEMENTED_SOFTWARE_INTERRUPT (at 0x{:x})",
+                self.ip - 0x4
+            ),
+        })
+    }
+
+    pub fn call(&mut self, instruction: Instruction) -> Result<bool, RsmiscError> {
+        let target_value = self.get_operand_value(instruction, instruction.target);
+        return match target_value {
+            Ok(target) => {
+                self.call_stack.push(self.ip);
+                self.ip = target;
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        };
+    }
+
+    pub fn ret(&mut self) -> Result<bool, RsmiscError> {
+        match self.call_stack.pop() {
+            Some(value) => {
+                self.ip = value;
+                Ok(true)
+            }
+            None => Err(RsmiscError {
                 code: -2,
-                message: format!("UNALIGNED_STORE_32"),
+                message: format!("CALL_STACK_EMPTY (at 0x{:x})", self.ip - 0x4),
             }),
+        }
+    }
+
+    pub fn nop(&self) -> Result<bool, RsmiscError> {
+        Ok(true)
+    }
+
+    pub fn get_operand_value(
+        &self,
+        instruction: Instruction,
+        operand: Operand,
+    ) -> Result<u16, RsmiscError> {
+        match operand {
+            Operand::R1 => Ok(self.registers[0] as u16),
+            Operand::R2 => Ok(self.registers[1] as u16),
+            Operand::R3 => Ok(self.registers[2] as u16),
+            Operand::R4 => Ok(self.registers[3] as u16),
+            Operand::IP => Ok(self.ip),
+            Operand::CT => Ok(instruction.imm),
+            Operand::MA => self.load_16(instruction.imm),
         }
     }
 }
