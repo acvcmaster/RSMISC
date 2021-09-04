@@ -2,10 +2,7 @@ use arithmetic_operation::ArithmeticOperation;
 use instruction::Instruction;
 use operand::Operand;
 
-use crate::debug_symbol::DebugSymbol;
-
 pub mod arithmetic_operation;
-pub mod debug_symbol;
 pub mod instruction;
 pub mod operand;
 
@@ -14,18 +11,16 @@ pub struct Rsmisc {
     memory: [u8; 0xffff], // 64 KiB
     ip: u16,
     registers: [u16; 0x4], // R1, R2, R3, R4,
-    debug_symbols: Vec<DebugSymbol>,
     stack: Vec<u16>,
     call_stack: Vec<u16>,
 }
 
 impl Rsmisc {
-    pub fn new(program: &Vec<u8>, debug_symbols: &Vec<DebugSymbol>) -> Result<Self, RsmiscError> {
+    pub fn new(program: &Vec<u8>) -> Result<Self, RsmiscError> {
         let mut result = Self {
             memory: [0; 0xffff],
             ip: 0,
             registers: [0; 0x4],
-            debug_symbols: debug_symbols.clone(),
             stack: Vec::new(),
             call_stack: Vec::new(),
         };
