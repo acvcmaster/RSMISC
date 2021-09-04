@@ -366,20 +366,20 @@ impl Rsmisc {
     }
 
     pub fn print_instruction(&self, instruction: &Instruction) {
-        println!("0x{:x}: {}", self.ip - 4, instruction);
+        println!("0x{:x}:\t {}", self.ip - 4, instruction);
     }
 }
 
 impl Display for Rsmisc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let call_stack = if let Some(last) = self.call_stack.last() {
-            format!("CS: 0x{}\tCSP: {}", last, self.call_stack.len())
+            format!("CS: 0x{:x}\tCSP: 0x{:x}", last, self.call_stack.len())
         } else {
             format!("CS: -\t\tCSP: 0x0")
         };
 
         let stack = if let Some(last) = self.stack.last() {
-            format!("S: 0x{}\tSP: {}", last, self.stack.len())
+            format!("S: 0x{:x}\tSP: 0x{:x}", last, self.stack.len())
         } else {
             format!("S: -\t\tSP: 0x0")
         };
