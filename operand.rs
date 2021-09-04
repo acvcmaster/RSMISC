@@ -39,4 +39,12 @@ impl Operand {
             _ => Operand::R1, // fallback
         }
     }
+
+    pub fn display(&self, imm: u16) -> String {
+        match self {
+            Operand::CT => format!("#{:X}", imm),
+            Operand::MA => format!("{:X}", imm),
+            _ => format!("{:?}", self)
+        }
+    }
 }   

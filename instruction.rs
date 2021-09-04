@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::operand::Operand;
 
 #[derive(Copy, Debug, Clone)]
@@ -51,6 +53,26 @@ impl From<u32> for Instruction {
             target: Operand::get_combination_target(operand_combination),
             source: Operand::get_combination_source(operand_combination),
             imm: (imm_1 >> 8 | imm_2 << 8) as u16,
+        }
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.op_code {
+            Opcode::HALT => write!(f, "HALT"),
+            Opcode::ADD => write!(f, "ADD {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::SUB => write!(f, "SUB {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::MUL => write!(f, "MUL {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::DIV => write!(f, "DIV {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::MOV => write!(f, "MOV {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::LD => write!(f, "LD {:?}", self.source),
+            Opcode::ULD => write!(f, "ULD {:?}", self.target),
+            Opcode::BZ => write!(f, "BZ {:?} {}", self.target, self.source.display(self.imm)),
+            Opcode::SWI => write!(f, "SWI {:?}", self.target),
+            Opcode::CALL => write!(f, "CALL {:?}", self.target),
+            Opcode::RET => write!(f, "RET"),
+            Opcode::NOP => write!(f, "NOP"),
         }
     }
 }

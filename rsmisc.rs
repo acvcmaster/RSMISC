@@ -369,7 +369,7 @@ impl Rsmisc {
     }
 
     pub fn print_instruction(&self, instruction: &Instruction) {
-        println!("0x{:x}: {:?}", self.ip - 4, instruction);
+        println!("0x{:x}: {}", self.ip - 4, instruction);
     }
 }
 
