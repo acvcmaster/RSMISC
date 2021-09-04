@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use arithmetic_operation::ArithmeticOperation;
 use instruction::Instruction;
 use operand::Operand;
@@ -216,11 +218,11 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        let source_value = self.get_operand_value(instruction, instruction.source);
+        let target_value = self.get_operand_value(instruction, instruction.target);
 
-        match source_value {
-            Ok(source) => {
-                self.stack.push(source);
+        match target_value {
+            Ok(target) => {
+                self.stack.push(target);
                 Ok(true)
             }
             Err(error) => Err(error),
@@ -365,6 +367,40 @@ impl Rsmisc {
 
     pub fn print_instruction(&self, instruction: &Instruction) {
         println!("0x{:x}: {}", self.ip - 4, instruction);
+    }
+}
+
+impl Display for Rsmisc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let call_stack = if let Some(last) = self.call_stack.last() {
+            format!("CS: 0x{}\tCSP: {}", last, self.call_stack.len())
+        } else {
+            format!("CS: -\t\tCSP: 0x0")
+        };
+
+        let stack = if let Some(last) = self.stack.last() {
+            format!("S: 0x{}\tSP: {}", last, self.stack.len())
+        } else {
+            format!("S: -\t\tSP: 0x0")
+        };
+
+        let r1_r2 = format!(
+            "R1: 0x{:x}\tR2: 0x{:x}",
+            self.registers[0], self.registers[1]
+        );
+
+        let r3_r4 = format!(
+            "R3: 0x{:x}\tR4: 0x{:x}",
+            self.registers[2], self.registers[3]
+        );
+
+        let ip = format!("IP: 0x{:x}", self.ip);
+
+        write!(
+            f,
+            "| Machine state\n|\n| {}\n| {}\n| {}\n| {}\n| {}",
+            call_stack, stack, r1_r2, r3_r4, ip
+        )
     }
 }
 
