@@ -299,13 +299,21 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        Err(RsmiscError {
-            code: -3,
-            message: format!(
-                "UNIMPLEMENTED_SOFTWARE_INTERRUPT (at 0x{:x})",
-                self.ip - 0x4
-            ),
-        })
+        match instruction.imm {
+            0x0 => {
+                if let Some(printable) = char::from_u32(self.registers[0] as u32) {
+                    print!("{}", printable);
+                }
+                Ok(true)
+            },
+            _ => Err(RsmiscError {
+                code: -3,
+                message: format!(
+                    "UNIMPLEMENTED_SOFTWARE_INTERRUPT (at 0x{:x})",
+                    self.ip - 0x4
+                ),
+            })
+        }
     }
 
     pub fn call(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
