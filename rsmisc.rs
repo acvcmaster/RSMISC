@@ -151,19 +151,19 @@ impl Rsmisc {
         match (target_result, source_result) {
             (Ok(target), Ok(source)) => match operation {
                 ArithmeticOperation::Add => {
-                    self.stack.push(target + source);
+                    self.stack.push(target.wrapping_add(source));
                     Ok(true)
                 }
                 ArithmeticOperation::Sub => {
-                    self.stack.push(target - source);
+                    self.stack.push(target.wrapping_sub(source));
                     Ok(true)
                 }
                 ArithmeticOperation::Mul => {
-                    self.stack.push(target * source);
+                    self.stack.push(target.wrapping_mul(source));
                     Ok(true)
                 }
                 ArithmeticOperation::Div => {
-                    self.stack.push(target / source);
+                    self.stack.push(target.wrapping_div(source));
                     Ok(true)
                 }
             },
