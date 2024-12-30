@@ -2,11 +2,14 @@ use std::fmt::Display;
 
 use arithmetic_operation::ArithmeticOperation;
 use instruction::Instruction;
-use operand::Operand;
+use operand::{Operand, OperandType};
 
 pub mod arithmetic_operation;
 pub mod instruction;
 pub mod operand;
+
+// Size (in bytes) of the instruction
+const INSTRUCTION_SIZE: usize = 0x6;
 
 #[derive(Debug, Clone)]
 pub struct Rsmisc {
@@ -35,34 +38,26 @@ impl Rsmisc {
         Ok(result)
     }
 
-    pub fn load_32(&self, address: u16) -> Result<u32, RsmiscError> {
-        let b0 = self.memory[(address + 0) as usize] as u32;
-        let b1 = self.memory[(address + 1) as usize] as u32;
-        let b2 = self.memory[(address + 2) as usize] as u32;
-        let b3 = self.memory[(address + 3) as usize] as u32;
+    pub fn load_48(&self, address: u16) -> Result<u64, RsmiscError> {
+        let mut result = 0;
 
-        Ok(b3 | b2 << 8 | b1 << 16 | b0 << 24)
-    }
+        for index in 0..INSTRUCTION_SIZE {
+            let current = self.memory[address as usize + index] as u64;
+            result |= current << (INSTRUCTION_SIZE - (index + 1)) * 8;
+        }
 
-    pub fn store_32(&mut self, address: u16, dword: u32) -> Result<(), RsmiscError> {
-        let b0 = (dword & 0xff000000) >> 24;
-        let b1 = (dword & 0xff0000) >> 16;
-        let b2 = (dword & 0xff00) >> 8;
-        let b3 = (dword & 0xff) >> 0;
-
-        self.memory[(address + 0) as usize] = b0 as u8;
-        self.memory[(address + 1) as usize] = b1 as u8;
-        self.memory[(address + 2) as usize] = b2 as u8;
-        self.memory[(address + 3) as usize] = b3 as u8;
-
-        Ok(())
+        Ok(result)
     }
 
     pub fn load_16(&self, address: u16) -> Result<u16, RsmiscError> {
-        let b0 = self.memory[(address + 0) as usize] as u16;
-        let b1 = self.memory[(address + 1) as usize] as u16;
+        let mut result = 0;
 
-        Ok(b1 | b0 << 8)
+        for index in 0..2 {
+            let current = self.memory[address as usize + index] as u16;
+            result |= current << (2 - (index + 1)) * 8;
+        }
+
+        Ok(result)
     }
 
     pub fn store_16(&mut self, address: u16, value: u16) -> () {
@@ -74,30 +69,30 @@ impl Rsmisc {
     }
 
     pub fn execute_next(&mut self, print: bool) -> Result<bool, RsmiscError> {
-        let result = self.load_32(self.ip);
-        match result {
-            Ok(dword) => {
-                let instruction = Instruction::from(dword);
-                self.ip += 0x4;
+        // Fetch the instruction
+        let instruction = Instruction::from(self.load_48(self.ip)?);
 
-                match instruction.op_code {
-                    instruction::Opcode::HALT => self.halt(instruction, print),
-                    instruction::Opcode::ADD => self.add(instruction, print),
-                    instruction::Opcode::SUB => self.sub(instruction, print),
-                    instruction::Opcode::MUL => self.mul(instruction, print),
-                    instruction::Opcode::DIV => self.div(instruction, print),
-                    instruction::Opcode::MOV => self.mov(instruction, print),
-                    instruction::Opcode::LD => self.ld(instruction, print),
-                    instruction::Opcode::ULD => self.uld(instruction, print),
-                    instruction::Opcode::BZ => self.bz(instruction, print),
-                    instruction::Opcode::SWI => self.swi(instruction, print),
-                    instruction::Opcode::CALL => self.call(instruction, print),
-                    instruction::Opcode::RET => self.ret(instruction, print),
-                    instruction::Opcode::NOP => self.nop(instruction, print),
-                }
-            }
-            Err(error) => Err(error),
-        }
+        // Execute the instruction
+        let result = match instruction.op_code {
+            instruction::Opcode::HALT => self.halt(instruction, print),
+            instruction::Opcode::ADD => self.add(instruction, print),
+            instruction::Opcode::SUB => self.sub(instruction, print),
+            instruction::Opcode::MUL => self.mul(instruction, print),
+            instruction::Opcode::DIV => self.div(instruction, print),
+            instruction::Opcode::MOV => self.mov(instruction, print),
+            instruction::Opcode::LD => self.ld(instruction, print),
+            instruction::Opcode::ULD => self.uld(instruction, print),
+            instruction::Opcode::BZ => self.bz(instruction, print),
+            instruction::Opcode::SWI => self.swi(instruction, print),
+            instruction::Opcode::CALL => self.call(instruction, print),
+            instruction::Opcode::RET => self.ret(instruction, print),
+            instruction::Opcode::NOP => self.nop(instruction, print),
+        };
+
+        // Increment the instruction pointer
+        self.ip += INSTRUCTION_SIZE as u16;
+
+        return result;
     }
 
     pub fn halt(&self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
@@ -145,31 +140,26 @@ impl Rsmisc {
         instruction: Instruction,
         operation: ArithmeticOperation,
     ) -> Result<bool, RsmiscError> {
-        let target_result = self.get_operand_value(instruction, instruction.target);
-        let source_result = self.get_operand_value(instruction, instruction.source);
+        let target = self.get_operand_value(instruction, OperandType::TARGET)?;
+        let source = self.get_operand_value(instruction, OperandType::SOURCE)?;
 
-        match (target_result, source_result) {
-            (Ok(target), Ok(source)) => match operation {
-                ArithmeticOperation::Add => {
-                    self.stack.push(target.wrapping_add(source));
-                    Ok(true)
-                }
-                ArithmeticOperation::Sub => {
-                    self.stack.push(target.wrapping_sub(source));
-                    Ok(true)
-                }
-                ArithmeticOperation::Mul => {
-                    self.stack.push(target.wrapping_mul(source));
-                    Ok(true)
-                }
-                ArithmeticOperation::Div => {
-                    self.stack.push(target.wrapping_div(source));
-                    Ok(true)
-                }
-            },
-            (Ok(_), Err(source)) => Err(source),
-            (Err(target), Ok(_)) => Err(target),
-            (Err(target), Err(_)) => Err(target),
+        match operation {
+            ArithmeticOperation::Add => {
+                self.stack.push(target.wrapping_add(source));
+                Ok(true)
+            }
+            ArithmeticOperation::Sub => {
+                self.stack.push(target.wrapping_sub(source));
+                Ok(true)
+            }
+            ArithmeticOperation::Mul => {
+                self.stack.push(target.wrapping_mul(source));
+                Ok(true)
+            }
+            ArithmeticOperation::Div => {
+                self.stack.push(target.wrapping_div(source));
+                Ok(true)
+            }
         }
     }
 
@@ -178,38 +168,35 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        let source_value = self.get_operand_value(instruction, instruction.source);
+        let source = self.get_operand_value(instruction, OperandType::SOURCE)?;
         let invalid_move_target = Err(RsmiscError {
             code: -6,
-            message: format!("INVALID_MOVE_TARGET (at 0x{:x}", self.ip - 0x4),
+            message: format!("INVALID_MOVE_TARGET (at 0x{:x}", self.ip),
         });
 
-        match source_value {
-            Ok(source) => match instruction.target {
-                Operand::R1 => {
-                    self.registers[0] = source;
-                    Ok(true)
-                }
-                Operand::R2 => {
-                    self.registers[1] = source;
-                    Ok(true)
-                }
-                Operand::R3 => {
-                    self.registers[2] = source;
-                    Ok(true)
-                }
-                Operand::R4 => {
-                    self.registers[3] = source;
-                    Ok(true)
-                }
-                Operand::IP => {
-                    self.ip = source;
-                    Ok(true)
-                }
-                Operand::CT => invalid_move_target,
-                Operand::MA => invalid_move_target,
-            },
-            Err(error) => Err(error),
+        match instruction.target {
+            Operand::R1 => {
+                self.registers[0] = source;
+                Ok(true)
+            }
+            Operand::R2 => {
+                self.registers[1] = source;
+                Ok(true)
+            }
+            Operand::R3 => {
+                self.registers[2] = source;
+                Ok(true)
+            }
+            Operand::R4 => {
+                self.registers[3] = source;
+                Ok(true)
+            }
+            Operand::IP => {
+                self.ip = source;
+                Ok(true)
+            }
+            Operand::CT => invalid_move_target,
+            Operand::MA => invalid_move_target,
         }
     }
 
@@ -218,15 +205,10 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        let target_value = self.get_operand_value(instruction, instruction.target);
+        self.stack
+            .push(self.get_operand_value(instruction, OperandType::TARGET)?);
 
-        match target_value {
-            Ok(target) => {
-                self.stack.push(target);
-                Ok(true)
-            }
-            Err(error) => Err(error),
-        }
+        Ok(true)
     }
 
     pub fn uld(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
@@ -258,16 +240,16 @@ impl Rsmisc {
                 }
                 Operand::CT => Err(RsmiscError {
                     code: -5,
-                    message: format!("INVALID_UNLOAD_TARGET (at 0x{:x}", self.ip - 0x4),
+                    message: format!("INVALID_UNLOAD_TARGET (at 0x{:x}", self.ip),
                 }),
                 Operand::MA => {
-                    self.store_16(instruction.imm, value);
+                    self.store_16(instruction.target_imm, value);
                     Ok(true)
                 }
             },
             None => Err(RsmiscError {
                 code: -4,
-                message: format!("NO_ELEMENTS_IN_STACK (at 0x{:x}", self.ip - 0x4),
+                message: format!("NO_ELEMENTS_IN_STACK (at 0x{:x}", self.ip),
             }),
         }
     }
@@ -277,21 +259,14 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        let target_value = self.get_operand_value(instruction, instruction.target);
-        let source_value = self.get_operand_value(instruction, instruction.source);
+        let target = self.get_operand_value(instruction, OperandType::TARGET)?;
+        let source = self.get_operand_value(instruction, OperandType::SOURCE)?;
 
-        match (target_value, source_value) {
-            (Ok(target), Ok(source)) => {
-                if target == 0 {
-                    self.ip = source;
-                }
-
-                Ok(true)
-            }
-            (Ok(_), Err(source)) => Err(source),
-            (Err(target), Ok(_)) => Err(target),
-            (Err(target), Err(_)) => Err(target),
+        if target == 0 {
+            self.ip = source;
         }
+
+        Ok(true)
     }
 
     pub fn swi(&self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
@@ -299,21 +274,28 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        match instruction.imm {
-            0x0 => {
-                if let Some(printable) = char::from_u32(self.registers[0] as u32) {
-                    print!("{}", printable);
-                }
-                Ok(true)
-            },
+        match instruction.target_imm {
+            0x0 => self.print_character_swi(),
+            0x1 => self.print_number_swi(),
             _ => Err(RsmiscError {
                 code: -3,
-                message: format!(
-                    "UNIMPLEMENTED_SOFTWARE_INTERRUPT (at 0x{:x})",
-                    self.ip - 0x4
-                ),
-            })
+                message: format!("UNIMPLEMENTED_SOFTWARE_INTERRUPT (at 0x{:x})", self.ip),
+            }),
         }
+    }
+
+    fn print_character_swi(&self) -> Result<bool, RsmiscError> {
+        if let Some(printable) = char::from_u32(self.registers[0] as u32) {
+            print!("{}", printable);
+        }
+
+        Ok(true)
+    }
+
+    fn print_number_swi(&self) -> Result<bool, RsmiscError> {
+        print!("{}", self.registers[0]);
+
+        Ok(true)
     }
 
     pub fn call(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
@@ -321,15 +303,12 @@ impl Rsmisc {
             self.print_instruction(&instruction);
         }
 
-        let target_value = self.get_operand_value(instruction, instruction.target);
-        return match target_value {
-            Ok(target) => {
-                self.call_stack.push(self.ip);
-                self.ip = target;
-                Ok(true)
-            }
-            Err(error) => Err(error),
-        };
+        let target = self.get_operand_value(instruction, OperandType::TARGET)?;
+
+        self.call_stack.push(self.ip + (INSTRUCTION_SIZE as u16));
+        self.ip = target - (INSTRUCTION_SIZE as u16);
+
+        Ok(true)
     }
 
     pub fn ret(&mut self, instruction: Instruction, print: bool) -> Result<bool, RsmiscError> {
@@ -344,7 +323,7 @@ impl Rsmisc {
             }
             None => Err(RsmiscError {
                 code: -2,
-                message: format!("CALL_STACK_EMPTY (at 0x{:x})", self.ip - 0x4),
+                message: format!("CALL_STACK_EMPTY (at 0x{:x})", self.ip),
             }),
         }
     }
@@ -360,21 +339,30 @@ impl Rsmisc {
     pub fn get_operand_value(
         &self,
         instruction: Instruction,
-        operand: Operand,
+        operand_type: OperandType,
     ) -> Result<u16, RsmiscError> {
+        let operand = match operand_type {
+            OperandType::TARGET => instruction.target,
+            OperandType::SOURCE => instruction.source,
+        };
+        let immediate = match operand_type {
+            OperandType::TARGET => instruction.target_imm,
+            OperandType::SOURCE => instruction.source_imm,
+        };
+
         match operand {
             Operand::R1 => Ok(self.registers[0] as u16),
             Operand::R2 => Ok(self.registers[1] as u16),
             Operand::R3 => Ok(self.registers[2] as u16),
             Operand::R4 => Ok(self.registers[3] as u16),
             Operand::IP => Ok(self.ip),
-            Operand::CT => Ok(instruction.imm),
-            Operand::MA => self.load_16(instruction.imm),
+            Operand::CT => Ok(immediate),
+            Operand::MA => self.load_16(immediate),
         }
     }
 
     pub fn print_instruction(&self, instruction: &Instruction) {
-        println!("0x{:x}:\t {}", self.ip - 4, instruction);
+        println!("0x{:x}:\t {}", self.ip, instruction);
     }
 }
 

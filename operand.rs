@@ -11,6 +11,11 @@ pub enum Operand {
     MA,
 }
 
+pub enum OperandType {
+    TARGET,
+    SOURCE,
+}
+
 pub const OPERAND_COUNT: u8 = 7;
 
 impl Operand {
@@ -44,7 +49,7 @@ impl Operand {
         match self {
             Operand::CT => format!("#{:X}", imm),
             Operand::MA => format!("{:X}", imm),
-            _ => format!("{:?}", self)
+            _ => format!("{:?}", self),
         }
     }
-}   
+}

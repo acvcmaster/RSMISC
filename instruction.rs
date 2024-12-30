@@ -24,15 +24,17 @@ pub struct Instruction {
     pub op_code: Opcode,
     pub target: Operand,
     pub source: Operand,
-    pub imm: u16,
+    pub target_imm: u16,
+    pub source_imm: u16,
 }
 
-impl From<u32> for Instruction {
-    fn from(dword: u32) -> Self {
-        let op = ((dword & 0xff000000) >> 24) as u8;
-        let operand_combination = ((dword & 0xff0000) >> 16) as u8;
-        let imm_1 = dword & 0xff00;
-        let imm_2 = dword & 0xff;
+impl From<u64> for Instruction {
+    // Instruction size is 48 bits ("tword")
+    fn from(tword: u64) -> Self {
+        let op = ((tword >> 40) & 0xff) as u8;
+        let operand_combination = ((tword >> 32) & 0xff) as u8;
+        let target_imm = (((tword >> 24) & 0xff) | ((tword >> 16) & 0xff) << 8) as u16;
+        let source_imm = (((tword >> 8) & 0xff) | (tword & 0xff) << 8) as u16;
 
         Instruction {
             op_code: match op {
@@ -52,7 +54,8 @@ impl From<u32> for Instruction {
             },
             target: Operand::get_combination_target(operand_combination),
             source: Operand::get_combination_source(operand_combination),
-            imm: (imm_1 >> 8 | imm_2 << 8) as u16,
+            target_imm,
+            source_imm,
         }
     }
 }
@@ -61,16 +64,46 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.op_code {
             Opcode::HALT => write!(f, "HALT"),
-            Opcode::ADD => write!(f, "ADD {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::SUB => write!(f, "SUB {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::MUL => write!(f, "MUL {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::DIV => write!(f, "DIV {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::MOV => write!(f, "MOV {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::LD => write!(f, "LD {}", self.target.display(self.imm)),
-            Opcode::ULD => write!(f, "ULD {}", self.target.display(self.imm)),
-            Opcode::BZ => write!(f, "BZ {} {}", self.target.display(self.imm), self.source.display(self.imm)),
-            Opcode::SWI => write!(f, "SWI {}", self.target.display(self.imm)),
-            Opcode::CALL => write!(f, "CALL {}", self.target.display(self.imm)),
+            Opcode::ADD => write!(
+                f,
+                "ADD {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::SUB => write!(
+                f,
+                "SUB {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::MUL => write!(
+                f,
+                "MUL {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::DIV => write!(
+                f,
+                "DIV {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::MOV => write!(
+                f,
+                "MOV {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::LD => write!(f, "LD {}", self.target.display(self.target_imm)),
+            Opcode::ULD => write!(f, "ULD {}", self.target.display(self.target_imm)),
+            Opcode::BZ => write!(
+                f,
+                "BZ {} {}",
+                self.target.display(self.target_imm),
+                self.source.display(self.source_imm)
+            ),
+            Opcode::SWI => write!(f, "SWI {}", self.target.display(self.target_imm)),
+            Opcode::CALL => write!(f, "CALL {}", self.target.display(self.target_imm)),
             Opcode::RET => write!(f, "RET"),
             Opcode::NOP => write!(f, "NOP"),
         }
